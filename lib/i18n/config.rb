@@ -4,16 +4,63 @@ require 'set'
 
 module I18n
   class Config
-    # The only configuration value that is not global and scoped to thread is :locale.
-    # It defaults to the default_locale.
-    def locale
-      defined?(@locale) && @locale != nil ? @locale : default_locale
+    if Fiber.respond_to?(:[])
+      def initialize
+        @tmp_locale_key = :"i18n_locale_#{object_id}"
+      end
+      # The only configuration value that is not global and scoped to the Fiber storage
+      # is :locale. It defaults to the default_locale.
+      def locale
+        if (tmp_locale = Fiber[@tmp_locale_key]) != nil
+          tmp_locale
+        elsif defined?(@locale) && @locale != nil
+          @locale
+        else
+          default_locale
+        end
+      end
+
+      # Sets the current locale pseudo-globally, i.e. in Fiber storage hash.
+      def locale=(locale, tmp = false)
+        I18n.enforce_available_locales!(locale)
+
+        if tmp
+          Fiber[@tmp_locale_key] = locale
+        else
+          @locale = locale && locale.to_sym
+          Fiber[@tmp_locale_key] = nil
+        end
+
+        # @locale = locale && locale.to_sym
+      end
+    else
+      # The only configuration value that is not global and scoped to thread is :locale.
+      # It defaults to the default_locale.
+      def locale
+        defined?(@locale) && @locale != nil ? @locale : default_locale
+      end
+
+      # Sets the current locale pseudo-globally, i.e. in the Thread.current hash.
+      def locale=(locale, _tmp = false)
+        I18n.enforce_available_locales!(locale)
+        @locale = locale && locale.to_sym
+      end
     end
 
-    # Sets the current locale pseudo-globally, i.e. in the Thread.current hash.
-    def locale=(locale)
-      I18n.enforce_available_locales!(locale)
-      @locale = locale && locale.to_sym
+    def with_locale(tmp_locale = nil)
+      if tmp_locale == nil
+        yield
+      else
+        current_locale = self.locale
+
+        self.public_send(:locale=, tmp_locale, true)
+
+        begin
+          yield
+        ensure
+          self.locale = current_locale
+        end
+      end
     end
 
     # Returns the current backend. Defaults to +Backend::Simple+.

@@ -56,10 +56,10 @@ class I18nTest < I18n::TestCase
     assert_equal I18n.default_locale, I18n.locale
   end
 
-  test "sets the current locale to Thread.current" do
+  test "sets the current locale to Thread.current thread variable" do
     assert_nothing_raised { I18n.locale = 'de' }
     assert_equal :de, I18n.locale
-    assert_equal :de, Thread.current[:i18n_config].locale
+    assert_equal :de, Thread.current.thread_variable_get(:i18n_config).locale
     I18n.locale = :en
   end
 
@@ -80,7 +80,7 @@ class I18nTest < I18n::TestCase
     begin
       I18n.config = self
       assert_equal self, I18n.config
-      assert_equal self, Thread.current[:i18n_config]
+      assert_equal self, Thread.current.thread_variable_get(:i18n_config)
     ensure
       I18n.config = ::I18n::Config.new
     end
@@ -424,6 +424,37 @@ class I18nTest < I18n::TestCase
   test "I18n.with_locale resets the locale in case of errors" do
     assert_raises(I18n::ArgumentError) { I18n.with_locale(:pl) { raise I18n::ArgumentError } }
     assert_equal I18n.default_locale, I18n.locale
+  end
+
+  if Fiber.respond_to?(:[])
+    test "I18n.with_locale sets locale in nested fibers" do
+      store_translations(:en, :foo => 'Foo in :en')
+      store_translations(:de, :foo => 'Foo in :de')
+      store_translations(:pl, :foo => 'Foo in :pl')
+
+      I18n.default_locale = :en
+
+      I18n.with_locale(:de) do
+        assert_equal [:de, 'Foo in :de'], [I18n.locale, I18n.t(:foo)]
+
+        fiber1 = Fiber.new do
+          assert_equal [:de, 'Foo in :de'], [I18n.locale, I18n.t(:foo)]
+        end
+
+        fiber2 = Fiber.new do
+          assert_equal [:de, 'Foo in :de'], [I18n.locale, I18n.t(:foo)]
+          I18n.with_locale(:pl) do
+            assert_equal [:pl, 'Foo in :pl'], [I18n.locale, I18n.t(:foo)]
+            fiber1.resume
+            assert_equal [:pl, 'Foo in :pl'], [I18n.locale, I18n.t(:foo)]
+          end
+        end
+
+        fiber2.resume
+      end
+
+      assert_equal [:en, 'Foo in :en'], [I18n.locale, I18n.t(:foo)]
+    end
   end
 
   test "I18n.transliterate handles I18n::ArgumentError exception" do

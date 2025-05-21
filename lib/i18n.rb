@@ -55,12 +55,13 @@ module I18n
   module Base
     # Gets I18n configuration object.
     def config
-      Thread.current[:i18n_config] ||= I18n::Config.new
+      Thread.current.thread_variable_get(:i18n_config) ||
+        Thread.current.thread_variable_set(:i18n_config, I18n::Config.new)
     end
 
     # Sets I18n configuration object.
     def config=(value)
-      Thread.current[:i18n_config] = value
+      Thread.current.thread_variable_set(:i18n_config, value)
     end
 
     # Write methods which delegates to the configuration object
@@ -343,18 +344,8 @@ module I18n
     alias :l :localize
 
     # Executes block with given I18n.locale set.
-    def with_locale(tmp_locale = nil)
-      if tmp_locale == nil
-        yield
-      else
-        current_locale = self.locale
-        self.locale = tmp_locale
-        begin
-          yield
-        ensure
-          self.locale = current_locale
-        end
-      end
+    def with_locale(tmp_locale = nil, &block)
+      config.with_locale(tmp_locale, &block)
     end
 
     # Merges the given locale, key and scope into a single array of keys.
